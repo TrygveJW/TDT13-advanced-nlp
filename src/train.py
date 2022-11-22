@@ -7,15 +7,15 @@ import numpy as np
 
 from transformers import AutoTokenizer, AutoModel
 
-# tokenizer = AutoTokenizer.from_pretrained("cmarkea/distilcamembert-base")
-tokenizer = CamembertTokenizerFast.from_pretrained("camembert-base")
+tokenizer = AutoTokenizer.from_pretrained("cmarkea/distilcamembert-base")
+# tokenizer = CamembertTokenizerFast.from_pretrained("camembert-base")
 
 
 class Dataset(torch.utils.data.Dataset):
 
     def __init__(self, df):
 
-        self.labels = [int(stars) for stars in df['stars']]
+        self.labels = [int(stars) -1 for stars in df['stars']]
         self.texts = [tokenizer(text,
                                padding='max_length', max_length = 512, truncation=True,
                                 return_tensors="pt") for text in df['review_body']]
@@ -41,14 +41,24 @@ class Dataset(torch.utils.data.Dataset):
 
         return batch_texts, batch_y
 
+
 class BertClassifier(nn.Module):
 
     def __init__(self, dropout=0.5):
 
         super(BertClassifier, self).__init__()
 
-        # self.bert = AutoModel.from_pretrained("cmarkea/distilcamembert-base")
-        self.bert = CamembertModel.from_pretrained('camembert-base')
+        self.bert = AutoModel.from_pretrained("cmarkea/distilcamembert-base") # 103 params
+        # self.bert = CamembertModel.from_pretrained('camembert-base')
+
+        # print(len(list(self.bert.named_parameters())))
+
+        # for name, param in list(self.bert.named_parameters()):
+        #     print(name)
+        # exit()
+        # for name, param in list(self.bert.named_parameters())[:-50]:
+            # print('I will be frozen: {}'.format(name))
+            # param.requires_grad = False
 
         self.dropout = nn.Dropout(dropout)
         self.linear = nn.Linear(768, 5)
@@ -63,13 +73,22 @@ class BertClassifier(nn.Module):
 
         return final_layer
 
+    def save_model(self, path: str):
+        torch.save(self.state_dict(), path)
+
+    @staticmethod
+    def load_model(path: str):
+        model = BertClassifier()
+        model.load_state_dict(torch.load(path))
+        model.eval()
+        return model
 
 def train(model, train_data, val_data, learning_rate, epochs):
 
     train, val = Dataset(train_data), Dataset(val_data)
 
-    train_dataloader = torch.utils.data.DataLoader(train, batch_size=3, shuffle=True)
-    val_dataloader = torch.utils.data.DataLoader(val, batch_size=3)
+    train_dataloader = torch.utils.data.DataLoader(train, batch_size=10, shuffle=True)
+    val_dataloader = torch.utils.data.DataLoader(val, batch_size=10)
 
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -94,17 +113,25 @@ def train(model, train_data, val_data, learning_rate, epochs):
             mask = train_input['attention_mask'].to(device)
             input_id = train_input['input_ids'].squeeze(1).to(device)
 
+
             output = model(input_id, mask)
 
             batch_loss = criterion(output, train_label.long())
-            total_loss_train += batch_loss.item()
+            total_loss_train += float(batch_loss.item())
 
             acc = (output.argmax(dim=1) == train_label).sum().item()
-            total_acc_train += acc
+            total_acc_train += float(acc)
 
             model.zero_grad()
             batch_loss.backward()
             optimizer.step()
+            # del train_label
+            # del mask
+            # del input_id
+            # del output
+            # del batch_loss
+            # del acc
+
 
         total_acc_val = 0
         total_loss_val = 0
@@ -120,10 +147,10 @@ def train(model, train_data, val_data, learning_rate, epochs):
                 output = model(input_id, mask)
 
                 batch_loss = criterion(output, val_label.long())
-                total_loss_val += batch_loss.item()
+                total_loss_val += float(batch_loss.item())
 
                 acc = (output.argmax(dim=1) == val_label).sum().item()
-                total_acc_val += acc
+                total_acc_val += float(acc)
 
         print(
             f'Epochs: {epoch_num + 1} | Train Loss: {total_loss_train / len(train_data): .3f} \
