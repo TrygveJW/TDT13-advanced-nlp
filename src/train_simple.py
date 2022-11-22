@@ -144,11 +144,13 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
     valid_fp = "./valid_pickle"
     if os.path.exists(train_fp):
         train_x = torch.load(train_fp).cpu()
-        valid_x = torch.load(valid_fp).cpu()
     else:
         train_x = transform(train_data).cpu()
         torch.save(train_x,train_fp)
 
+    if os.path.exists(valid_fp):
+        valid_x = torch.load(valid_fp).cpu()
+    else:
         valid_x = transform(val_data).cpu()
         torch.save(valid_x, valid_fp)
 
@@ -167,8 +169,8 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
     train, val = Dataset(train_y,train_x), Dataset(valid_y, valid_x)
 
     print("aa")
-    train_dataloader = torch.utils.data.DataLoader(train, batch_size=1, shuffle=True)
-    val_dataloader = torch.utils.data.DataLoader(val, batch_size=1)
+    train_dataloader = torch.utils.data.DataLoader(train, batch_size=10, shuffle=True)
+    val_dataloader = torch.utils.data.DataLoader(val, batch_size=10)
 
     print("bb")
     use_cuda = torch.cuda.is_available()

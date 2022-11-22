@@ -12,6 +12,7 @@ def main():
     # transform_tokenize(df_train)
     # exit()
     EPOCHS = 7
+    åਞ = 99
     model = BertClassifier()
     LR = 1e-6
     print("read")
@@ -34,7 +35,7 @@ def main_2():
 
     EPOCHS = 50
     model = LinearModel()
-    LR = 1e-5
+    LR = 1e-6
     print("read")
     df_train =  df_train#.groupby("stars").head(500)
     df_val = df_val#.groupby("stars").head(500)
