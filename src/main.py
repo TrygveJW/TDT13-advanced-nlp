@@ -14,7 +14,7 @@ def main():
     EPOCHS = 7
     åਞ = 99
     model = BertClassifier()
-    LR = 1e-6
+    LR = 1e-5
     print("read")
     # df_train, df_val, df_test = np.split(df.sample(frac=1, random_state=42),
     #                                      [int(.8 * len(df)), int(.9 * len(df))])
@@ -34,13 +34,12 @@ def main_2():
     df_val = fetch_dataset("./data/dataset_fr_dev.json")
 
     EPOCHS = 50
-    model = LinearModel()
-    LR = 1e-6
-    print("read")
+    model = LinearModel(dropout=0.3)
+    # LR = 1e-6
+    LR = 1e-5
     df_train =  df_train#.groupby("stars").head(500)
     df_val = df_val#.groupby("stars").head(500)
 
-    print("smp")
     train_simplefied(model, df_train, df_val, LR, EPOCHS)
 
     model.save_model("./model_saved.bipbop")

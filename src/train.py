@@ -87,8 +87,8 @@ def train(model, train_data, val_data, learning_rate, epochs):
 
     train, val = Dataset(train_data), Dataset(val_data)
 
-    train_dataloader = torch.utils.data.DataLoader(train, batch_size=10, shuffle=True)
-    val_dataloader = torch.utils.data.DataLoader(val, batch_size=10)
+    train_dataloader = torch.utils.data.DataLoader(train, batch_size=2, shuffle=True)
+    val_dataloader = torch.utils.data.DataLoader(val, batch_size=2)
 
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")

@@ -1,7 +1,10 @@
+import datetime
 import math
 import os.path
 import pickle
+import time
 
+import pandas as pd
 import torch
 from torch import nn
 from torch.optim import Adam
@@ -72,14 +75,35 @@ class LinearModel(nn.Module):
             # print('I will be frozen: {}'.format(name))
             # param.requires_grad = False
         super().__init__()
+        # self.model = nn.Sequential(
+        #     nn.Linear(768, 200),
+        #     nn.ReLU(),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(200, 200),
+        #     nn.ReLU(),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(200, 200),
+        #     nn.ReLU(),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(200, 200),
+        #     nn.ReLU(),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(200, 5),
+        #     nn.ReLU(),
+        # )
+
+
         self.model = nn.Sequential(
-            nn.Linear(768, 200),
+            nn.Linear(768, 100),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(200, 50),
+            nn.Linear(100, 50),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(50, 5),
+            nn.Linear(50, 25),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(25, 5),
             nn.ReLU(),
         )
 
@@ -165,20 +189,26 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
 
     # with torch.no_grad():
     #     self.transformed = camembert(tokenized["input_ids"],tokenized['attention_mask'])
-    print("ii")
     train, val = Dataset(train_y,train_x), Dataset(valid_y, valid_x)
 
-    print("aa")
     train_dataloader = torch.utils.data.DataLoader(train, batch_size=10, shuffle=True)
     val_dataloader = torch.utils.data.DataLoader(val, batch_size=10)
 
-    print("bb")
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
 
-    print("cc")
     criterion = nn.CrossEntropyLoss()
     optimizer = Adam(model.parameters(), lr= learning_rate)
+
+    train_loss_list = []
+    train_acc_list = []
+    train_off_by_1_list = []
+
+    val_loss_list = []
+    val_acc_list = []
+    val_off_by_1_list = []
+
+    iter_times = []
 
     if use_cuda:
         print("using cuda")
@@ -187,17 +217,17 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
         criterion = criterion.cuda()
 
     for epoch_num in range(epochs):
+        time_0 = time.time()
 
         total_acc_train = 0
         total_loss_train = 0
+        total_off_by_1_acc_train = 0
 
         for train_input, train_label in tqdm(train_dataloader):
+            model.train()
 
             train_label = train_label.to(device)
             train_input = train_input.to(device)
-            # mask = train_input['attention_mask'].to(device)
-            # input_id = train_input['input_ids'].squeeze(1).to(device)
-
 
             output = model(train_input)
 
@@ -207,23 +237,24 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
             acc = (output.argmax(dim=1) == train_label).sum().item()
             total_acc_train += float(acc)
 
+            off_by_1_acc = torch.le((output.argmax(dim=1) - train_label).abs(), 1).sum().item()
+            total_off_by_1_acc_train += off_by_1_acc
+
             model.zero_grad()
             batch_loss.backward()
             optimizer.step()
-            # del train_label
-            # del mask
-            # del input_id
-            # del output
-            # del batch_loss
-            # del acc
 
+
+        iter_times.append(time.time()-time_0)
 
         total_acc_val = 0
         total_loss_val = 0
+        total_off_by_1_acc_val = 0
 
         with torch.no_grad():
 
             for val_input, val_label in val_dataloader:
+                model.eval()
 
                 val_label = val_label.to(device)
                 val_input = val_input.to(device)
@@ -236,8 +267,37 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
                 acc = (output.argmax(dim=1) == val_label).sum().item()
                 total_acc_val += float(acc)
 
+                off_by_1_acc = torch.le((output.argmax(dim=1) - val_label).abs(),1).sum().item()
+                total_off_by_1_acc_val += off_by_1_acc
+
+                # binary_acc = torch.logical_not(torch.logical_xor( torch.le(output.argmax(dim=1), 2), torch.le(val_label, 2))).sum().item()
+                # total_binary_acc_val += binary_acc
+
+        val_loss_list.append(float(total_loss_val)/len(val_data))
+        val_acc_list.append(float(total_acc_val)/len(val_data))
+        val_off_by_1_list.append(float(total_off_by_1_acc_val)/len(val_data))
+
+        train_loss_list.append(float(total_loss_train)/len(train_data))
+        train_acc_list.append(float(total_acc_train)/len(train_data))
+        train_off_by_1_list.append(float(total_off_by_1_acc_train)/len(train_data))
+
         print(
             f'Epochs: {epoch_num + 1} | Train Loss: {total_loss_train / len(train_data): .3f} \
+                | train acc off by 1: {total_off_by_1_acc_train / len(train_data): .3f} \
                 | Train Accuracy: {total_acc_train / len(train_data): .3f} \
                 | Val Loss: {total_loss_val / len(val_data): .3f} \
+                | Val acc off by 1: {total_off_by_1_acc_val / len(val_data): .3f} \
                 | Val Accuracy: {total_acc_val / len(val_data): .3f}')
+
+    data_df = pd.DataFrame({
+        "val_loss": val_loss_list,
+        "val_acc": val_acc_list,
+        "val_off_by_1": val_off_by_1_list,
+
+        "train_loss": train_loss_list,
+        "train_acc": train_acc_list,
+        "train_off_by_1": train_off_by_1_list,
+
+        "epoch_time_s": iter_times,
+    })
+    data_df.to_csv(f"./train_csv_{datetime.datetime.now()}")
