@@ -234,11 +234,21 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
             batch_loss = criterion(output, train_label.long())
             total_loss_train += float(batch_loss.item())
 
-            acc = (output.argmax(dim=1) == train_label).sum().item()
-            total_acc_train += float(acc)
 
-            off_by_1_acc = torch.le((output.argmax(dim=1) - train_label).abs(), 1).sum().item()
-            total_off_by_1_acc_train += off_by_1_acc
+            with torch.no_grad():
+                output_clc = output.clone()
+                max_idx = output_clc.argmax(dim=1)
+                acc = (max_idx == train_label).sum().item()
+                total_acc_train += float(acc)
+
+                # off_by_1_acc = torch.le((output.argmax(dim=1) - train_label).abs(), 1).sum().item()
+                # total_off_by_1_acc_train += off_by_1_acc
+
+                output_clc[:,max_idx] = 0
+                next_max_idx = output_clc.argmax(dim=1)
+
+                off_by_1_acc = torch.logical_or(max_idx == train_label, next_max_idx == train_label).sum().item()
+                total_off_by_1_acc_train += off_by_1_acc
 
             model.zero_grad()
             batch_loss.backward()
@@ -264,10 +274,18 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
                 batch_loss = criterion(output, val_label.long())
                 total_loss_val += float(batch_loss.item())
 
+
+                max_idx = output.argmax(dim=1)
                 acc = (output.argmax(dim=1) == val_label).sum().item()
                 total_acc_val += float(acc)
 
-                off_by_1_acc = torch.le((output.argmax(dim=1) - val_label).abs(),1).sum().item()
+                # off_by_1_acc = torch.le((output.argmax(dim=1) - val_label).abs(),1).sum().item()
+                # total_off_by_1_acc_val += off_by_1_acc
+
+                output[max_idx,:] = 0
+                next_max_idx = output.argmax(dim=1)
+
+                off_by_1_acc = torch.logical_or(max_idx == val_label, next_max_idx == val_label).sum().item()
                 total_off_by_1_acc_val += off_by_1_acc
 
                 # binary_acc = torch.logical_not(torch.logical_xor( torch.le(output.argmax(dim=1), 2), torch.le(val_label, 2))).sum().item()
@@ -282,12 +300,12 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
         train_off_by_1_list.append(float(total_off_by_1_acc_train)/len(train_data))
 
         print(
-            f'Epochs: {epoch_num + 1} | Train Loss: {total_loss_train / len(train_data): .3f} \
-                | train acc off by 1: {total_off_by_1_acc_train / len(train_data): .3f} \
-                | Train Accuracy: {total_acc_train / len(train_data): .3f} \
-                | Val Loss: {total_loss_val / len(val_data): .3f} \
-                | Val acc off by 1: {total_off_by_1_acc_val / len(val_data): .3f} \
-                | Val Accuracy: {total_acc_val / len(val_data): .3f}')
+            f'Epochs: {epoch_num + 1} | Train Loss: {total_loss_train / len(train_data): .5f} \
+                | train acc off by 1: {total_off_by_1_acc_train / len(train_data): .5f} \
+                | Train Accuracy: {total_acc_train / len(train_data): .5f} \
+                | Val Loss: {total_loss_val / len(val_data): .5f} \
+                | Val acc off by 1: {total_off_by_1_acc_val / len(val_data): .5f} \
+                | Val Accuracy: {total_acc_val / len(val_data): .5f}')
 
     data_df = pd.DataFrame({
         "val_loss": val_loss_list,
