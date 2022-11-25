@@ -236,18 +236,19 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
 
 
             with torch.no_grad():
-                output_clc = output.clone()
-                max_idx = output_clc.argmax(dim=1)
+                output_mask = torch.ones_like(output, dtype=torch.bool)
+
+                max_idx = output.argmax(dim=1)
                 acc = (max_idx == train_label).sum().item()
                 total_acc_train += float(acc)
 
-                # off_by_1_acc = torch.le((output.argmax(dim=1) - train_label).abs(), 1).sum().item()
-                # total_off_by_1_acc_train += off_by_1_acc
+                max_idx_rs = torch.reshape(max_idx, (-1,1))
+                output_mask=  torch.scatter(input=output_mask,dim=1, index=max_idx_rs, value=False)
+                masked_out = torch.reshape(output[output_mask], (output.shape[0], output.shape[1]-1))
 
-                output_clc[:,max_idx] = 0
-                next_max_idx = output_clc.argmax(dim=1)
+                next_max_idx =  masked_out.argmax(dim=1)
 
-                off_by_1_acc = torch.logical_or(max_idx == train_label, next_max_idx == train_label).sum().item()
+                off_by_1_acc = torch.logical_or(torch.eq(max_idx, train_label), torch.eq(next_max_idx, train_label)).sum().item()
                 total_off_by_1_acc_train += off_by_1_acc
 
             model.zero_grad()
@@ -279,17 +280,17 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
                 acc = (output.argmax(dim=1) == val_label).sum().item()
                 total_acc_val += float(acc)
 
-                # off_by_1_acc = torch.le((output.argmax(dim=1) - val_label).abs(),1).sum().item()
-                # total_off_by_1_acc_val += off_by_1_acc
 
-                output[max_idx,:] = 0
-                next_max_idx = output.argmax(dim=1)
+                output_mask = torch.ones_like(output, dtype=torch.bool)
+                max_idx_rs = torch.reshape(max_idx, (-1,1))
+                output_mask=  torch.scatter(input=output_mask,dim=1, index=max_idx_rs, value=False)
+                masked_out = torch.reshape(output[output_mask], (output.shape[0], output.shape[1]-1))
 
-                off_by_1_acc = torch.logical_or(max_idx == val_label, next_max_idx == val_label).sum().item()
+                next_max_idx =  masked_out.argmax(dim=1)
+
+                off_by_1_acc = torch.logical_or(torch.eq(max_idx, val_label), torch.eq(next_max_idx, val_label)).sum().item()
                 total_off_by_1_acc_val += off_by_1_acc
 
-                # binary_acc = torch.logical_not(torch.logical_xor( torch.le(output.argmax(dim=1), 2), torch.le(val_label, 2))).sum().item()
-                # total_binary_acc_val += binary_acc
 
         val_loss_list.append(float(total_loss_val)/len(val_data))
         val_acc_list.append(float(total_acc_val)/len(val_data))

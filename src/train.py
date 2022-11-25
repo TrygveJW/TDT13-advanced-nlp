@@ -96,6 +96,17 @@ def train(model, train_data, val_data, learning_rate, epochs):
     criterion = nn.CrossEntropyLoss()
     optimizer = Adam(model.parameters(), lr= learning_rate)
 
+    train_loss_list = []
+    train_acc_list = []
+    train_off_by_1_list = []
+
+    val_loss_list = []
+    val_acc_list = []
+    val_off_by_1_list = []
+
+    iter_times = []
+
+    session_train_name = f"./train_csv_{datetime.datetime.now()}"
     if use_cuda:
         print("using cuda")
 
@@ -103,9 +114,12 @@ def train(model, train_data, val_data, learning_rate, epochs):
         criterion = criterion.cuda()
 
     for epoch_num in range(epochs):
+        time_0 = time.time()
 
         total_acc_train = 0
         total_loss_train = 0
+        total_off_by_1_acc_train = 0
+
 
         for train_input, train_label in tqdm(train_dataloader):
 
@@ -122,19 +136,35 @@ def train(model, train_data, val_data, learning_rate, epochs):
             acc = (output.argmax(dim=1) == train_label).sum().item()
             total_acc_train += float(acc)
 
+            with torch.no_grad():
+                output_mask = torch.ones_like(output, dtype=torch.bool)
+
+                max_idx = output.argmax(dim=1)
+                acc = (max_idx == train_label).sum().item()
+                total_acc_train += float(acc)
+
+                max_idx_rs = torch.reshape(max_idx, (-1,1))
+                output_mask=  torch.scatter(input=output_mask,dim=1, index=max_idx_rs, value=False)
+                masked_out = torch.reshape(output[output_mask], (output.shape[0], output.shape[1]-1))
+
+                next_max_idx =  masked_out.argmax(dim=1)
+
+                off_by_1_acc = torch.logical_or(torch.eq(max_idx, train_label), torch.eq(next_max_idx, train_label)).sum().item()
+                total_off_by_1_acc_train += off_by_1_acc
+
+
             model.zero_grad()
             batch_loss.backward()
             optimizer.step()
-            # del train_label
-            # del mask
-            # del input_id
-            # del output
-            # del batch_loss
-            # del acc
 
+
+
+        iter_times.append(time.time()-time_0)
 
         total_acc_val = 0
         total_loss_val = 0
+        total_off_by_1_acc_val = 0
+
 
         with torch.no_grad():
 
@@ -151,6 +181,40 @@ def train(model, train_data, val_data, learning_rate, epochs):
 
                 acc = (output.argmax(dim=1) == val_label).sum().item()
                 total_acc_val += float(acc)
+
+                output_mask = torch.ones_like(output, dtype=torch.bool)
+                max_idx_rs = torch.reshape(max_idx, (-1, 1))
+                output_mask = torch.scatter(input=output_mask, dim=1, index=max_idx_rs, value=False)
+                masked_out = torch.reshape(output[output_mask], (output.shape[0], output.shape[1] - 1))
+
+                next_max_idx = masked_out.argmax(dim=1)
+
+                off_by_1_acc = torch.logical_or(torch.eq(max_idx, val_label), torch.eq(next_max_idx, val_label)).sum().item()
+                total_off_by_1_acc_val += off_by_1_acc
+
+
+
+        val_loss_list.append(float(total_loss_val) / len(val_data))
+        val_acc_list.append(float(total_acc_val) / len(val_data))
+        val_off_by_1_list.append(float(total_off_by_1_acc_val) / len(val_data))
+
+        train_loss_list.append(float(total_loss_train) / len(train_data))
+        train_acc_list.append(float(total_acc_train) / len(train_data))
+        train_off_by_1_list.append(float(total_off_by_1_acc_train) / len(train_data))
+
+        data_df = pd.DataFrame({
+            "val_loss": val_loss_list,
+            "val_acc": val_acc_list,
+            "val_off_by_1": val_off_by_1_list,
+
+            "train_loss": train_loss_list,
+            "train_acc": train_acc_list,
+            "train_off_by_1": train_off_by_1_list,
+
+            "epoch_time_s": iter_times,
+        })
+
+        data_df.to_csv(session_train_name)
 
         print(
             f'Epochs: {epoch_num + 1} | Train Loss: {total_loss_train / len(train_data): .3f} \
