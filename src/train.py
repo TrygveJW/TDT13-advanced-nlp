@@ -1,3 +1,7 @@
+import datetime
+import time
+
+import pandas as pd
 import torch
 from torch import nn
 from torch.optim import Adam
@@ -14,11 +18,11 @@ tokenizer = AutoTokenizer.from_pretrained("cmarkea/distilcamembert-base")
 class Dataset(torch.utils.data.Dataset):
 
     def __init__(self, df):
-
-        self.labels = [int(stars) -1 for stars in df['stars']]
-        self.texts = [tokenizer(text,
-                               padding='max_length', max_length = 512, truncation=True,
-                                return_tensors="pt") for text in df['review_body']]
+        with torch.no_grad():
+            self.labels = [int(stars) -1 for stars in df['stars']]
+            self.texts = [tokenizer(text,
+                                   padding='max_length', max_length = 512, truncation=True,
+                                    return_tensors="pt") for text in df['review_body']]
 
     def classes(self):
         return self.labels
@@ -87,8 +91,8 @@ def train(model, train_data, val_data, learning_rate, epochs):
 
     train, val = Dataset(train_data), Dataset(val_data)
 
-    train_dataloader = torch.utils.data.DataLoader(train, batch_size=2, shuffle=True)
-    val_dataloader = torch.utils.data.DataLoader(val, batch_size=2)
+    train_dataloader = torch.utils.data.DataLoader(train, batch_size=8, shuffle=True)
+    val_dataloader = torch.utils.data.DataLoader(val, batch_size=8)
 
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -217,7 +221,10 @@ def train(model, train_data, val_data, learning_rate, epochs):
         data_df.to_csv(session_train_name)
 
         print(
-            f'Epochs: {epoch_num + 1} | Train Loss: {total_loss_train / len(train_data): .3f} \
-                | Train Accuracy: {total_acc_train / len(train_data): .3f} \
-                | Val Loss: {total_loss_val / len(val_data): .3f} \
-                | Val Accuracy: {total_acc_val / len(val_data): .3f}')
+            f'Epochs: {epoch_num + 1} | Train Loss: {total_loss_train / len(train_data): .5f} \
+                    | train acc off by 1: {total_off_by_1_acc_train / len(train_data): .5f} \
+                    | Train Accuracy: {total_acc_train / len(train_data): .5f} \
+                    | Val Loss: {total_loss_val / len(val_data): .5f} \
+                    | Val acc off by 1: {total_off_by_1_acc_val / len(val_data): .5f} \
+                    | Val Accuracy: {total_acc_val / len(val_data): .5f}')
+

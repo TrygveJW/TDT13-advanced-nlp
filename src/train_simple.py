@@ -3,7 +3,7 @@ import math
 import os.path
 import pickle
 import time
-
+import lightgbm as lgb
 import pandas as pd
 import torch
 from torch import nn
@@ -14,24 +14,17 @@ import numpy as np
 
 from transformers import AutoTokenizer, AutoModel
 
-# tokenizer = AutoTokenizer.from_pretrained("cmarkea/distilcamembert-base")
-tokenizer = CamembertTokenizerFast.from_pretrained("camembert-base")
+tokenizer = AutoTokenizer.from_pretrained("cmarkea/distilcamembert-base")
+camembert = AutoModel.from_pretrained("cmarkea/distilcamembert-base")
 
-
-camembert = CamembertModel.from_pretrained('camembert-base')
+# tokenizer = CamembertTokenizerFast.from_pretrained("camembert-base")
+# camembert = CamembertModel.from_pretrained('camembert-base')
 
 
 class Dataset(torch.utils.data.Dataset):
 
     def __init__(self, labels, transformed):
 
-        # self.labels = [int(stars) -1 for stars in df['stars']]
-        # tokenized = tokenizer( df['review_body'].tolist(),
-        #                        padding='max_length', max_length = 512, truncation=True,
-        #                         return_tensors="pt")
-        #
-        # with torch.no_grad():
-        #     self.transformed = camembert(tokenized["input_ids"],tokenized['attention_mask'])
         self.labels = labels
         self.transformed = transformed
 
@@ -62,35 +55,7 @@ class LinearModel(nn.Module):
     def __init__(self,
                  dropout=0.3):
 
-
-        # self.bert = AutoModel.from_pretrained("cmarkea/distilcamembert-base") # 103 params
-        # self.bert = CamembertModel.from_pretrained('camembert-base')
-
-        # print(len(list(self.bert.named_parameters())))
-
-        # for name, param in list(self.bert.named_parameters()):
-        #     print(name)
-        # exit()
-        # for name, param in list(self.bert.named_parameters())[:-50]:
-            # print('I will be frozen: {}'.format(name))
-            # param.requires_grad = False
         super().__init__()
-        # self.model = nn.Sequential(
-        #     nn.Linear(768, 200),
-        #     nn.ReLU(),
-        #     nn.Dropout(dropout),
-        #     nn.Linear(200, 200),
-        #     nn.ReLU(),
-        #     nn.Dropout(dropout),
-        #     nn.Linear(200, 200),
-        #     nn.ReLU(),
-        #     nn.Dropout(dropout),
-        #     nn.Linear(200, 200),
-        #     nn.ReLU(),
-        #     nn.Dropout(dropout),
-        #     nn.Linear(200, 5),
-        #     nn.ReLU(),
-        # )
 
 
         self.model = nn.Sequential(
@@ -102,7 +67,6 @@ class LinearModel(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(50, 25),
             nn.ReLU(),
-            nn.Dropout(dropout),
             nn.Linear(25, 5),
             nn.ReLU(),
         )
@@ -164,6 +128,9 @@ def transform(dat):
 
 def train_simplefied(model, train_data, val_data, learning_rate, epochs):
 
+    # train_fp = "./train_pickle_distilled"
+    # valid_fp = "./valid_pickle_distilled"
+
     train_fp = "./train_pickle"
     valid_fp = "./valid_pickle"
     if os.path.exists(train_fp):
@@ -178,21 +145,15 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
         valid_x = transform(val_data).cpu()
         torch.save(valid_x, valid_fp)
 
-    train_y =  [int(stars) -1 for stars in train_data['stars']]
-    valid_y =  [int(stars) -1 for stars in val_data['stars']]
-    # self.labels = [int(stars) -1 for stars in df['stars']]
-    # tokenized = tokenizer( train_data['review_body'].tolist(),
-    #                        padding='max_length', max_length = 512, truncation=True,
-    #                         return_tensors="pt")
 
 
+    train_y = np.array([int(stars) -1 for stars in train_data['stars']])
+    valid_y =  np.array([int(stars) -1 for stars in val_data['stars']])
 
-    # with torch.no_grad():
-    #     self.transformed = camembert(tokenized["input_ids"],tokenized['attention_mask'])
     train, val = Dataset(train_y,train_x), Dataset(valid_y, valid_x)
 
-    train_dataloader = torch.utils.data.DataLoader(train, batch_size=10, shuffle=True)
-    val_dataloader = torch.utils.data.DataLoader(val, batch_size=10)
+    train_dataloader = torch.utils.data.DataLoader(train, batch_size=8, shuffle=True)
+    val_dataloader = torch.utils.data.DataLoader(val, batch_size=8, shuffle=True)
 
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -210,6 +171,8 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
 
     iter_times = []
 
+    run_name = f"./train_csv_{datetime.datetime.now()}"
+    print("run name ", run_name)
     if use_cuda:
         print("using cuda")
 
@@ -256,6 +219,7 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
             optimizer.step()
 
 
+        # print(output)
         iter_times.append(time.time()-time_0)
 
         total_acc_val = 0
@@ -271,6 +235,7 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
                 val_input = val_input.to(device)
 
                 output = model(val_input)
+
 
                 batch_loss = criterion(output, val_label.long())
                 total_loss_val += float(batch_loss.item())
@@ -300,6 +265,18 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
         train_acc_list.append(float(total_acc_train)/len(train_data))
         train_off_by_1_list.append(float(total_off_by_1_acc_train)/len(train_data))
 
+        data_df = pd.DataFrame({
+            "val_loss": val_loss_list,
+            "val_acc": val_acc_list,
+            "val_off_by_1": val_off_by_1_list,
+
+            "train_loss": train_loss_list,
+            "train_acc": train_acc_list,
+            "train_off_by_1": train_off_by_1_list,
+
+            "epoch_time_s": iter_times,
+        })
+        data_df.to_csv(run_name)
         print(
             f'Epochs: {epoch_num + 1} | Train Loss: {total_loss_train / len(train_data): .5f} \
                 | train acc off by 1: {total_off_by_1_acc_train / len(train_data): .5f} \
@@ -307,16 +284,3 @@ def train_simplefied(model, train_data, val_data, learning_rate, epochs):
                 | Val Loss: {total_loss_val / len(val_data): .5f} \
                 | Val acc off by 1: {total_off_by_1_acc_val / len(val_data): .5f} \
                 | Val Accuracy: {total_acc_val / len(val_data): .5f}')
-
-    data_df = pd.DataFrame({
-        "val_loss": val_loss_list,
-        "val_acc": val_acc_list,
-        "val_off_by_1": val_off_by_1_list,
-
-        "train_loss": train_loss_list,
-        "train_acc": train_acc_list,
-        "train_off_by_1": train_off_by_1_list,
-
-        "epoch_time_s": iter_times,
-    })
-    data_df.to_csv(f"./train_csv_{datetime.datetime.now()}")
